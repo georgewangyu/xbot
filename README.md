@@ -57,6 +57,13 @@ AUTH_TOKEN=...
 CT0=...
 ```
 
+Typical shell setup before read commands:
+```bash
+set -a
+source ../georgerepo/.tokens/x-twitter.env
+set +a
+```
+
 ### Posting (Option 1 — official API)
 Add to `.env` in this directory or to `georgerepo/.tokens/x-twitter.env`:
 ```
@@ -84,14 +91,19 @@ node src/cli.js post "Hello from my native agent"
 node src/cli.js home --count 10
 ```
 
-### Read bookmarks
+### Read following timeline
 ```bash
-node src/cli.js bookmarks --count 10
+node src/cli.js latest --count 10
 ```
 
 ### Check auth
 ```bash
-node src/cli.js whoami
+node src/cli.js me
+```
+
+### Read a user's tweets
+```bash
+node src/cli.js user <handle> --count 10
 ```
 
 ## Setting Up Official API (Option 1)
