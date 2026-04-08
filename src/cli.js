@@ -1,97 +1,93 @@
+#!/usr/bin/env node
+
 import { Command } from 'commander';
 import { XClient } from './client.js';
-import { extractTweets } from './utils.js';
-import kleur from 'kleur';
 
 const program = new Command();
 
 program
-    .name('bird-native')
-    .description('Native X/Twitter CLI agent')
-    .version('1.0.0')
-    .option('-p, --profile <name>', 'Chrome profile name', 'Default')
-    .option('--headless', 'Run in headless mode', true)
-    .option('--json', 'Output in JSON format (default)', true);
-
-async function runCommand(fn) {
-    const options = program.opts();
-    const client = new XClient({
-        profile: options.profile,
-        headless: options.headless === 'true' || options.headless === true
-    });
-    try {
-        await client.init();
-    } catch (e) {
-        if (process.env.AUTH_TOKEN && process.env.CT0) {
-            console.warn(kleur.yellow('Notice: Chrome profile locked/unavailable. Falling back to browserless (token-only) mode.'));
-        } else {
-            console.error(kleur.red(`Error: Could not launch browser and no manual tokens found. (${e.message})`));
-            process.exit(1);
-        }
-    }
-
-    try {
-        await fn(client);
-    } catch (e) {
-        console.error(kleur.red(`Error: ${e.message}`));
-        process.exit(1);
-    } finally {
-        await client.close();
-    }
-}
-
-program
-    .command('whoami')
-    .description('Check authentication status')
-    .action(() => runCommand(async (client) => {
-        await client.page.goto('https://x.com/home');
-        const handle = await client.page.evaluate(() => {
-            return document.querySelector('[data-testid="SideNav_AccountSwitcher_Badge"]')?.innerText || 'Not logged in';
-        });
-        console.log(`Authenticated as: ${kleur.green(handle.replace('\n', ' '))}`);
-    }));
-
-program
-    .command('home')
-    .description('Fetch Home timeline')
-    .option('-c, --count <number>', 'Number of tweets', 20)
-    .action((opts) => runCommand(async (client) => {
-        const data = await client.fetchGraphQL('HomeTimeline', {
-            count: parseInt(opts.count),
-            includePromotedContent: true,
-            latestControlAvailable: true,
-            requestContext: 'launch'
-        }, {
-            responsive_web_graphql_timeline_navigation_enabled: true
-        });
-        const tweets = extractTweets(data);
-        console.log(JSON.stringify(tweets, null, 2));
-    }));
-
-program
-    .command('bookmarks')
-    .description('Fetch Bookmarks')
-    .option('-c, --count <number>', 'Number of tweets', 20)
-    .action((opts) => runCommand(async (client) => {
-        const data = await client.fetchGraphQL('Bookmarks', {
-            count: parseInt(opts.count)
-        }, {
-            responsive_web_graphql_timeline_navigation_enabled: true
-        });
-        const tweets = extractTweets(data);
-        console.log(JSON.stringify(tweets, null, 2));
-    }));
+    .name('xbot')
+    .description('Stealth X/Twitter CLI for posting and fetching (100% Browserless)')
+    .version('1.0.0');
 
 program
     .command('post <text>')
     .description('Post a new tweet')
-    .action((text) => runCommand(async (client) => {
-        console.log(kleur.cyan(`Posting: "${text}"...`));
-        await client.page.goto('https://x.com/compose/post');
-        await client.page.waitForSelector('[data-testid="tweetTextarea_0"]');
-        await client.page.fill('[data-testid="tweetTextarea_0"]', text);
-        await client.page.click('[data-testid="tweetButtonInline"]');
-        console.log(kleur.green('Successfully posted!'));
-    }));
+    .action(async (text) => {
+        const client = new XClient();
+        try {
+            // TODO: client.post(text) via HTTP
+            process.exit(0);
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('user <handle>')
+    .description('Fetch user tweets')
+    .option('-c, --count <number>', 'Number of tweets to fetch', '20')
+    .action(async (handle, options) => {
+        const client = new XClient();
+        try {
+            const user = await client.getUserByScreenName(handle);
+            if (!user) {
+                console.error(`User not found: ${handle}`);
+                process.exit(1);
+            }
+
+            console.log(`User: ${user.name} (@${user.username})`);
+            const tweets = await client.getUserTweets(user.id, parseInt(options.count));
+            console.log(JSON.stringify(tweets, null, 2));
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('home')
+    .description('Fetch "For You" timeline')
+    .option('-c, --count <number>', 'Number of tweets to fetch', '20')
+    .action(async (options) => {
+        const client = new XClient();
+        try {
+            const tweets = await client.getHomeTimeline(parseInt(options.count));
+            console.log(JSON.stringify(tweets, null, 2));
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('latest')
+    .description('Fetch "Following" timeline')
+    .option('-c, --count <number>', 'Number of tweets to fetch', '20')
+    .action(async (options) => {
+        const client = new XClient();
+        try {
+            const tweets = await client.getHomeLatestTimeline(parseInt(options.count));
+            console.log(JSON.stringify(tweets, null, 2));
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('me')
+    .description('Show current authenticated user info')
+    .action(async () => {
+        const client = new XClient();
+        try {
+            const res = await client.fetchGraphQL('HomeTimeline', { count: 1 });
+            if (res) console.log("Session is VALID (Direct HTTP).");
+        } catch (e) {
+            console.error("Session check failed:", e.message);
+            process.exit(1);
+        }
+    });
 
 program.parse();

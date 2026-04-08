@@ -1,66 +1,30 @@
-import { discoverQueryIds } from './discovery.js';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 export class XClient {
     constructor(options = {}) {
         this.options = options;
-        this.browser = null;
-        this.context = null;
-        this.page = null;
+        this.clientUuid = randomUUID();
+        this.clientDeviceId = randomUUID();
+        // Ground truth query IDs from bird
         this.queryIds = {
             'HomeTimeline': 'edseUwk9sP5Phz__9TIRnA',
-            'Bookmarks': '7_9NCCl3YMa9S9fJpL_T7A',
-            'CreateTweet': 'PAt9U0nId7pIdLbhH5AQLQ',
-            'FavoriteTweet': 'lI07N6O6_mC7_6Uf17uW2w'
+            'HomeLatestTimeline': 'iOEZpOdfekFsxSlPQCQtPg',
+            'UserTweets': 'Wms1GvIiHXAPBaCr9KblaA', 
+            'UserByScreenName': 'IGgvgiOx4QZndDHuD3x9TQ',
+            'TweetDetail': '_NvJCnIjOW__EP5-RF197A',
+            'SearchTimeline': '6AAys3t42mosm_yTI_QENg',
+            'Bookmarks': 'RV1g3b8n_SGOHwkqKYSCFw',
+            'FavoriteTweet': 'lI07N6Otwv1PhnEgXILM7A'
         };
     }
 
-    async init() {
-        // Lazy-load Playwright only when explicitly needed
-        const { chromium } = await import('playwright-extra');
-        const { default: stealthPlugin } = await import('puppeteer-extra-plugin-stealth');
-        
-        chromium.use(stealthPlugin());
-
-        // Use your actual Chrome profile to bypass detection and reuse credentials
-        const userDataDir = this.options.userDataDir || `/Users/gywang912/Library/Application Support/Google/Chrome`;
-        const profile = this.options.profile || 'Default';
-
-        this.context = await chromium.launchPersistentContext(userDataDir, {
-            headless: this.options.headless !== false,
-            channel: 'chrome',
-            args: [
-                '--disable-blink-features=AutomationControlled',
-                `--profile-directory=${profile}`
-            ]
-        });
-
-        this.page = await this.context.newPage();
-        
-        // Load Query IDs if not provided
-        if (Object.keys(this.queryIds).length === 0) {
-            this.queryIds = await discoverQueryIds(this.page);
-        }
-    }
-
-    async close() {
-        if (this.context) await this.context.close();
-    }
-
-    async getQueryId(operation) {
-        return this.queryIds[operation];
+    createTransactionId() {
+        return randomBytes(16).toString('hex');
     }
 
     async fetchGraphQL(operation, variables = {}, features = {}) {
-        const queryId = await this.getQueryId(operation);
-        
-        // Fallback or override specific query IDs if discovery fails or gives 404s
-        const overrides = {
-            'HomeTimeline': 'edseUwk9sP5Phz__9TIRnA',
-            'HomeLatestTimeline': 'iOEZpOdfekFsxSlPQCQtPg'
-        };
-        
-        const finalQueryId = (overrides[operation] && !queryId) ? overrides[operation] : (queryId || overrides[operation]);
-        if (!finalQueryId) throw new Error(`Unknown operation: ${operation}. You may need to refresh discovery.`);
+        const queryId = this.queryIds[operation];
+        if (!queryId) throw new Error(`Unknown operation: ${operation}`);
 
         const defaultFeatures = {
             responsive_web_graphql_timeline_navigation_enabled: true,
@@ -76,9 +40,6 @@ export class XClient {
             view_counts_everywhere_api_enabled: true,
             longform_notetweets_consumption_enabled: true,
             responsive_web_twitter_article_tweet_consumption_enabled: true,
-            tweet_awards_web_tipping_enabled: false,
-            freedom_of_speech_not_reach_fetch_enabled: true,
-            standardized_nudges_misinfo: true,
             tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
             longform_notetweets_rich_text_read_enabled: true,
             longform_notetweets_inline_media_enabled: true,
@@ -91,56 +52,155 @@ export class XClient {
             features: JSON.stringify(finalFeatures)
         });
 
-        const url = `https://x.com/i/api/graphql/${finalQueryId}/${operation}?${params.toString()}`;
-
-        // Attempt a BROWSERLESS fetch first (Original Bird logic)
+        const url = `https://x.com/i/api/graphql/${queryId}/${operation}?${params.toString()}`;
         const authToken = process.env.AUTH_TOKEN || '';
         const ct0 = process.env.CT0 || '';
 
-        // If we have tokens and NO active browser page, try standalone fetch
-        if (!this.page && authToken && ct0) {
-            const headers = {
-                'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-                'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
-                'x-csrf-token': ct0,
-                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-                'x-twitter-active-user': 'yes',
-                'x-twitter-client-language': 'en'
-            };
+        if (!authToken || !ct0) {
+            throw new Error("Missing AUTH_TOKEN or CT0 environment variables.");
+        }
 
-            try {
-                const res = await fetch(url, { headers });
-                if (res.ok) {
-                    return await res.json();
+        const headers = {
+            'accept': '*/*',
+            'accept-language': 'en-US,en;q=0.9',
+            'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+            'Cookie': `auth_token=${authToken}; ct0=${ct0}`,
+            'x-csrf-token': ct0,
+            'x-twitter-auth-type': 'OAuth2Session',
+            'x-twitter-active-user': 'yes',
+            'x-twitter-client-language': 'en',
+            'x-client-uuid': this.clientUuid,
+            'x-twitter-client-deviceid': this.clientDeviceId,
+            'x-client-transaction-id': this.createTransactionId(),
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'origin': 'https://x.com',
+            'referer': 'https://x.com/'
+        };
+
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`X API Error ${res.status}: ${text.slice(0, 200)}`);
+        }
+        return await res.json();
+    }
+
+    parseTweets(instructions) {
+        const tweets = [];
+        const seen = new Set();
+
+        const collectResults = (entry) => {
+            const results = [];
+            const push = (res) => { if (res?.rest_id) results.push(res); };
+            
+            const content = entry.content;
+            push(content?.itemContent?.tweet_results?.result);
+            push(content?.item?.itemContent?.tweet_results?.result);
+            
+            for (const item of content?.items ?? []) {
+                push(item?.item?.itemContent?.tweet_results?.result);
+                push(item?.itemContent?.tweet_results?.result);
+                push(item?.content?.itemContent?.tweet_results?.result);
+            }
+            return results;
+        };
+
+        for (const instruction of instructions ?? []) {
+            if (instruction.type !== 'TimelineAddEntries' && instruction.type !== 'TimelinePinEntry') continue;
+            
+            const entries = instruction.entry ? [instruction.entry] : instruction.entries;
+            for (const entry of entries ?? []) {
+                const results = collectResults(entry);
+                for (const result of results) {
+                    const tweet = result.tweet || result;
+                    const legacy = tweet.legacy;
+                    if (!legacy || seen.has(tweet.rest_id)) continue;
+                    
+                    seen.add(tweet.rest_id);
+                    
+                    let text = legacy.full_text;
+                    const note = tweet.note_tweet?.note_tweet_results?.result;
+                    if (note?.text) text = note.text;
+                    
+                    const core = tweet.core || result.core;
+                    const userResult = core?.user_results?.result;
+                    const userLegacy = userResult?.legacy || userResult?.core;
+
+                    tweets.push({
+                        id: tweet.rest_id,
+                        text,
+                        author: userLegacy?.screen_name,
+                        authorName: userLegacy?.name,
+                        createdAt: legacy.created_at,
+                        likes: legacy.favorite_count,
+                        retweets: legacy.retweet_count,
+                        replies: legacy.reply_count
+                    });
                 }
-                console.log(`Standalone fetch failed (${res.status}). Attempting browser fallback...`);
-            } catch (err) {
-                console.log(`Standalone fetch error: ${err.message}. Switching to browser mode...`);
             }
         }
+        return tweets;
+    }
 
-        // BROWSER FALLBACK: Reuse session from Chrome profile
-        if (!this.page) {
-            await this.init();
-        }
+    async getHomeTimeline(count = 20) {
+        const res = await this.fetchGraphQL('HomeTimeline', {
+            count,
+            includePromotedContent: true,
+            latestControlAvailable: true,
+            requestContext: 'launch',
+            withCommunity: true
+        });
+        
+        const instructions = res?.data?.home?.home_timeline_urt?.instructions;
+        return this.parseTweets(instructions);
+    }
 
-        return await this.page.evaluate(async ({ fetchUrl }) => {
-            const cookieAuth = document.cookie.match(/auth_token=([^;]+)/)?.[1];
-            const cookieCt0 = document.cookie.match(/ct0=([^;]+)/)?.[1];
-            
-            const headers = {
-                'x-twitter-active-user': 'yes',
-                'x-twitter-client-language': 'en',
-                'content-type': 'application/json',
-                'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
-            };
+    async getHomeLatestTimeline(count = 20) {
+        const res = await this.fetchGraphQL('HomeLatestTimeline', {
+            count,
+            includePromotedContent: true,
+            latestControlAvailable: true,
+            requestContext: 'launch',
+            withCommunity: true
+        });
+        
+        const instructions = res?.data?.home?.home_timeline_urt?.instructions;
+        return this.parseTweets(instructions);
+    }
 
-            if (cookieAuth) headers['Cookie'] = `auth_token=${cookieAuth}; ct0=${cookieCt0}`;
-            if (cookieCt0) headers['x-csrf-token'] = cookieCt0;
+    async getUserByScreenName(screenName) {
+        const res = await this.fetchGraphQL('UserByScreenName', {
+            screen_name: screenName,
+            withGrokTranslatedBio: false
+        });
+        const user = res?.data?.user?.result;
+        if (!user || user.__typename === 'UserUnavailable') return null;
 
-            const res = await fetch(fetchUrl, { headers });
-            if (!res.ok) throw new Error(`X API Error: ${res.status}`);
-            return await res.json();
-        }, { fetchUrl: url });
+        const legacy = user.legacy;
+        return {
+            id: user.rest_id,
+            username: legacy.screen_name,
+            name: legacy.name,
+            description: legacy.description,
+            followersCount: legacy.followers_count,
+            followingCount: legacy.friends_count,
+            location: legacy.location
+        };
+    }
+
+    async getUserTweets(userId, count = 20) {
+        const res = await this.fetchGraphQL('UserTweets', {
+            userId: userId,
+            count: count,
+            includePromotedContent: false,
+            withQuickPromoteEligibilityTweetFields: true,
+            withVoice: true,
+            withV2Timeline: true
+        });
+        
+        const instructions = res?.data?.user?.result?.timeline_v2?.timeline?.instructions 
+                           || res?.data?.user?.result?.timeline?.timeline?.instructions;
+        
+        return this.parseTweets(instructions);
     }
 }
