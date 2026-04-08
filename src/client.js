@@ -22,9 +22,30 @@ export class XClient {
         return randomBytes(16).toString('hex');
     }
 
+    withOperationDefaultVariables(operation, variables = {}) {
+        const defaultsByOperation = {
+            HomeTimeline: {
+                includePromotedContent: true,
+                latestControlAvailable: true,
+                requestContext: 'launch',
+                withCommunity: true
+            },
+            HomeLatestTimeline: {
+                includePromotedContent: true,
+                latestControlAvailable: true,
+                requestContext: 'launch',
+                withCommunity: true
+            }
+        };
+
+        const operationDefaults = defaultsByOperation[operation] || {};
+        return { ...operationDefaults, ...variables };
+    }
+
     async fetchGraphQL(operation, variables = {}, features = {}) {
         const queryId = this.queryIds[operation];
         if (!queryId) throw new Error(`Unknown operation: ${operation}`);
+        const finalVariables = this.withOperationDefaultVariables(operation, variables);
 
         const defaultFeatures = {
             responsive_web_graphql_timeline_navigation_enabled: true,
@@ -48,7 +69,7 @@ export class XClient {
 
         const finalFeatures = { ...defaultFeatures, ...features };
         const params = new URLSearchParams({
-            variables: JSON.stringify(variables),
+            variables: JSON.stringify(finalVariables),
             features: JSON.stringify(finalFeatures)
         });
 
