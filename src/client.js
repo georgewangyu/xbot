@@ -1,8 +1,4 @@
-import { chromium } from 'playwright-extra';
-import stealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { discoverQueryIds } from './discovery.js';
-
-chromium.use(stealthPlugin());
 
 export class XClient {
     constructor(options = {}) {
@@ -19,6 +15,12 @@ export class XClient {
     }
 
     async init() {
+        // Lazy-load Playwright only when explicitly needed
+        const { chromium } = await import('playwright-extra');
+        const { default: stealthPlugin } = await import('puppeteer-extra-plugin-stealth');
+        
+        chromium.use(stealthPlugin());
+
         // Use your actual Chrome profile to bypass detection and reuse credentials
         const userDataDir = this.options.userDataDir || `/Users/gywang912/Library/Application Support/Google/Chrome`;
         const profile = this.options.profile || 'Default';
@@ -106,13 +108,15 @@ export class XClient {
                 'x-twitter-client-language': 'en'
             };
 
-            const res = await fetch(url, { headers });
-            if (res.ok) {
-                return await res.json();
+            try {
+                const res = await fetch(url, { headers });
+                if (res.ok) {
+                    return await res.json();
+                }
+                console.log(`Standalone fetch failed (${res.status}). Attempting browser fallback...`);
+            } catch (err) {
+                console.log(`Standalone fetch error: ${err.message}. Switching to browser mode...`);
             }
-            
-            // If raw fetch fails with 401/403, we might need a browser
-            console.log(`Standalone fetch failed (${res.status}). Attempting browser initialization...`);
         }
 
         // BROWSER FALLBACK: Reuse session from Chrome profile

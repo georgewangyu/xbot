@@ -1,34 +1,121 @@
-# Bird-Native
+---
+doc_schema: "doc-frontmatter-v1"
+doc_id: "xbot/README"
+doc_type: "readme"
+doc_status: "active"
+title: "xbot — X/Twitter Automation Client"
+description: "Native X/Twitter automation client combining Playwright browser posting, official API v2 posting, and GraphQL reading."
+memory_eligible: false
+memory_priority: "low"
+doc_tags:
+  - "domain:social-media"
+  - "tool:xbot"
+  - "type:readme"
+---
+# xbot — X/Twitter Automation Client
 
-A native, browser-based X/Twitter CLI client developed to replace the dependency on external CLI tools and bypass bot detection (Error 226).
+Native X/Twitter automation client with multiple posting strategies and GraphQL-based reading.
+Built to bypass bot detection (Error 226) encountered when posting via cookie-auth sessions.
 
-## Features
-- **Stealth Browser Agent**: Uses Playwright + Stealth to execute actions within a real Chrome context.
-- **Dynamic Discovery**: Scans X's web assets for the latest GraphQL operation IDs and variables.
-- **Human-like Posting**: Automates the composition UI to ensure posts look human to Twitter's risk engine.
-- **Data Export**: Support for Home Timeline, Bookmarks, and Likes.
+## Architecture
+
+```
+xbot/
+├── src/
+│   ├── cli.js            # Browser-based CLI (read + Playwright post — Option 3)
+│   ├── client.js         # XClient: Playwright + stealth browser + GraphQL fetch
+│   ├── post_official.js  # Official Twitter API v2 poster (OAuth 1.0a — Option 1)
+│   ├── discovery.js      # Dynamic GraphQL query ID scraper
+│   └── utils.js          # Tweet parsing helpers
+├── README.md
+└── IMPROVEMENTS.md       # Backlog and bot-detection strategy options
+```
+
+## Posting Strategies
+
+Three strategies are available, ordered by reliability. See `IMPROVEMENTS.md` for full
+trade-off analysis.
+
+| Strategy | File | Reliability | Notes |
+|----------|------|-------------|-------|
+| **Option 1**: Official API v2 | `post_official.js` | Highest | Requires dev app OAuth keys |
+| **Option 2**: Session warming | (inline patch) | Medium | No extra credentials |
+| **Option 3**: Playwright browser | `cli.js post` | Variable | Uses real Chrome profile |
 
 ## Installation
+
 ```bash
 npm install
 ```
 
+## Credentials
+
+### Reading (Option 2/3 — cookie auth)
+Set in `georgerepo/.tokens/x-twitter.env` or shell environment:
+```
+AUTH_TOKEN=...
+CT0=...
+```
+
+### Posting (Option 1 — official API)
+Add to `.env` in this directory or to `georgerepo/.tokens/x-twitter.env`:
+```
+X_API_KEY=...
+X_API_SECRET=...
+X_ACCESS_TOKEN=...
+X_ACCESS_TOKEN_SECRET=...
+```
+See setup instructions below.
+
 ## Usage
+
+### Post a tweet (Option 1 — Official API, recommended)
 ```bash
-# Authenticate (uses your existing Chrome profile)
-node src/cli.js whoami
+node src/post_official.js "Your tweet text here"
+```
 
-# Post a tweet
+### Post a tweet (Option 3 — Playwright browser)
+```bash
 node src/cli.js post "Hello from my native agent"
+```
 
-# Fetch data
+### Read home timeline
+```bash
 node src/cli.js home --count 10
+```
+
+### Read bookmarks
+```bash
 node src/cli.js bookmarks --count 10
 ```
 
+### Check auth
+```bash
+node src/cli.js whoami
+```
+
+## Setting Up Official API (Option 1)
+
+1. Go to [developer.twitter.com](https://developer.twitter.com) and sign in with your X account
+2. Click **"Sign up for Free Account"** (Free tier: 1,500 tweets/month write)
+3. Fill in the use case description (e.g. "Personal automation for posting to my own account")
+4. Once approved, go to **Projects & Apps → Create App**
+5. Under **Keys and Tokens**, generate:
+   - API Key & Secret
+   - Access Token & Secret (with **Read and Write** permissions)
+6. Add all four values to `georgerepo/.tokens/x-twitter.env`
+
 ## Configuration
-The client defaults to your standard Google Chrome profile:
+
+Chrome profile defaults (edit `src/client.js` to override):
 - Path: `~/Library/Application Support/Google/Chrome`
 - Profile: `Default`
 
-You can override these in `src/client.js` if you wish to use a different profile or path.
+## Genesis
+
+**Created**: Early 2026
+
+**Motivation**: The `bird` CLI tool (cookie-auth GraphQL) reliably reads X data but
+triggers error 226 ("automated request") on write operations. `xbot` was built as a
+stealth Playwright alternative and later extended with official API v2 support for
+reliable posting.
