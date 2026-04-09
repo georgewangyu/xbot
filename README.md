@@ -22,11 +22,10 @@ Built to bypass bot detection (Error 226) encountered when posting via cookie-au
 ```
 xbot/
 ├── src/
-│   ├── cli.js            # Browser-based CLI (read + Playwright post — Option 3)
-│   ├── client.js         # XClient: Playwright + stealth browser + GraphQL fetch
+│   ├── cli.js            # Unified CLI (read + official API post)
+│   ├── client.js         # XClient: direct GraphQL fetch for reading
 │   ├── post_official.js  # Official Twitter API v2 poster (OAuth 1.0a — Option 1)
-│   ├── discovery.js      # Dynamic GraphQL query ID scraper
-│   └── utils.js          # Tweet parsing helpers
+│   └── credentials.js    # Shared credential loader (.env + georgerepo tokens)
 ├── README.md
 └── IMPROVEMENTS.md       # Backlog and bot-detection strategy options
 ```
@@ -81,11 +80,6 @@ See setup instructions below.
 node src/post_official.js "Your tweet text here"
 ```
 
-### Post a tweet (Option 3 — Playwright browser)
-```bash
-node src/cli.js post "Hello from my native agent"
-```
-
 ### Read home timeline
 ```bash
 node src/cli.js home --count 10
@@ -96,7 +90,7 @@ node src/cli.js home --count 10
 node src/cli.js latest --count 10
 ```
 
-### Check auth
+### Check auth (add MY_HANDLE=yourusername to env to show profile)
 ```bash
 node src/cli.js me
 ```

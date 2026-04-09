@@ -1,15 +1,15 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { loadCookieCredentials } from './credentials.js';
 
 export class XClient {
     constructor(options = {}) {
         this.options = options;
         this.clientUuid = randomUUID();
         this.clientDeviceId = randomUUID();
-        // Ground truth query IDs from bird
         this.queryIds = {
             'HomeTimeline': 'edseUwk9sP5Phz__9TIRnA',
             'HomeLatestTimeline': 'iOEZpOdfekFsxSlPQCQtPg',
-            'UserTweets': 'Wms1GvIiHXAPBaCr9KblaA', 
+            'UserTweets': 'Wms1GvIiHXAPBaCr9KblaA',
             'UserByScreenName': 'IGgvgiOx4QZndDHuD3x9TQ',
             'TweetDetail': '_NvJCnIjOW__EP5-RF197A',
             'SearchTimeline': '6AAys3t42mosm_yTI_QENg',
@@ -22,30 +22,9 @@ export class XClient {
         return randomBytes(16).toString('hex');
     }
 
-    withOperationDefaultVariables(operation, variables = {}) {
-        const defaultsByOperation = {
-            HomeTimeline: {
-                includePromotedContent: true,
-                latestControlAvailable: true,
-                requestContext: 'launch',
-                withCommunity: true
-            },
-            HomeLatestTimeline: {
-                includePromotedContent: true,
-                latestControlAvailable: true,
-                requestContext: 'launch',
-                withCommunity: true
-            }
-        };
-
-        const operationDefaults = defaultsByOperation[operation] || {};
-        return { ...operationDefaults, ...variables };
-    }
-
     async fetchGraphQL(operation, variables = {}, features = {}) {
         const queryId = this.queryIds[operation];
         if (!queryId) throw new Error(`Unknown operation: ${operation}`);
-        const finalVariables = this.withOperationDefaultVariables(operation, variables);
 
         const defaultFeatures = {
             responsive_web_graphql_timeline_navigation_enabled: true,
@@ -69,16 +48,15 @@ export class XClient {
 
         const finalFeatures = { ...defaultFeatures, ...features };
         const params = new URLSearchParams({
-            variables: JSON.stringify(finalVariables),
+            variables: JSON.stringify(variables),
             features: JSON.stringify(finalFeatures)
         });
 
         const url = `https://x.com/i/api/graphql/${queryId}/${operation}?${params.toString()}`;
-        const authToken = process.env.AUTH_TOKEN || '';
-        const ct0 = process.env.CT0 || '';
+        const { authToken, ct0 } = loadCookieCredentials();
 
         if (!authToken || !ct0) {
-            throw new Error("Missing AUTH_TOKEN or CT0 environment variables.");
+            throw new Error('Missing AUTH_TOKEN or CT0. Set them in georgerepo/.tokens/x-twitter.env or shell environment.');
         }
 
         const headers = {
@@ -93,7 +71,7 @@ export class XClient {
             'x-client-uuid': this.clientUuid,
             'x-twitter-client-deviceid': this.clientDeviceId,
             'x-client-transaction-id': this.createTransactionId(),
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
             'origin': 'https://x.com',
             'referer': 'https://x.com/'
         };
@@ -106,18 +84,26 @@ export class XClient {
         return await res.json();
     }
 
+    // Returns { tweets, nextCursor }
     parseTweets(instructions) {
         const tweets = [];
         const seen = new Set();
+        let nextCursor = null;
 
         const collectResults = (entry) => {
+            // Extract bottom cursor
+            const content = entry.content;
+            if (content?.entryType === 'TimelineTimelineCursor' && content?.cursorType === 'Bottom') {
+                nextCursor = content.value;
+                return [];
+            }
+
             const results = [];
             const push = (res) => { if (res?.rest_id) results.push(res); };
-            
-            const content = entry.content;
+
             push(content?.itemContent?.tweet_results?.result);
             push(content?.item?.itemContent?.tweet_results?.result);
-            
+
             for (const item of content?.items ?? []) {
                 push(item?.item?.itemContent?.tweet_results?.result);
                 push(item?.itemContent?.tweet_results?.result);
@@ -128,7 +114,7 @@ export class XClient {
 
         for (const instruction of instructions ?? []) {
             if (instruction.type !== 'TimelineAddEntries' && instruction.type !== 'TimelinePinEntry') continue;
-            
+
             const entries = instruction.entry ? [instruction.entry] : instruction.entries;
             for (const entry of entries ?? []) {
                 const results = collectResults(entry);
@@ -136,13 +122,13 @@ export class XClient {
                     const tweet = result.tweet || result;
                     const legacy = tweet.legacy;
                     if (!legacy || seen.has(tweet.rest_id)) continue;
-                    
+
                     seen.add(tweet.rest_id);
-                    
+
                     let text = legacy.full_text;
                     const note = tweet.note_tweet?.note_tweet_results?.result;
                     if (note?.text) text = note.text;
-                    
+
                     const core = tweet.core || result.core;
                     const userResult = core?.user_results?.result;
                     const userLegacy = userResult?.legacy || userResult?.core;
@@ -155,38 +141,65 @@ export class XClient {
                         createdAt: legacy.created_at,
                         likes: legacy.favorite_count,
                         retweets: legacy.retweet_count,
-                        replies: legacy.reply_count
+                        replies: legacy.reply_count,
+                        quotes: legacy.quote_count
                     });
                 }
             }
         }
-        return tweets;
+        return { tweets, nextCursor };
     }
 
     async getHomeTimeline(count = 20) {
-        const res = await this.fetchGraphQL('HomeTimeline', {
-            count,
-            includePromotedContent: true,
-            latestControlAvailable: true,
-            requestContext: 'launch',
-            withCommunity: true
-        });
-        
-        const instructions = res?.data?.home?.home_timeline_urt?.instructions;
-        return this.parseTweets(instructions);
+        const allTweets = [];
+        let cursor = undefined;
+
+        while (allTweets.length < count) {
+            const vars = {
+                count: Math.min(count - allTweets.length, 40),
+                includePromotedContent: true,
+                latestControlAvailable: true,
+                requestContext: 'launch',
+                withCommunity: true
+            };
+            if (cursor) vars.cursor = cursor;
+
+            const res = await this.fetchGraphQL('HomeTimeline', vars);
+            const instructions = res?.data?.home?.home_timeline_urt?.instructions;
+            const { tweets, nextCursor } = this.parseTweets(instructions);
+            allTweets.push(...tweets);
+
+            if (!nextCursor || tweets.length === 0) break;
+            cursor = nextCursor;
+        }
+
+        return allTweets.slice(0, count);
     }
 
     async getHomeLatestTimeline(count = 20) {
-        const res = await this.fetchGraphQL('HomeLatestTimeline', {
-            count,
-            includePromotedContent: true,
-            latestControlAvailable: true,
-            requestContext: 'launch',
-            withCommunity: true
-        });
-        
-        const instructions = res?.data?.home?.home_timeline_urt?.instructions;
-        return this.parseTweets(instructions);
+        const allTweets = [];
+        let cursor = undefined;
+
+        while (allTweets.length < count) {
+            const vars = {
+                count: Math.min(count - allTweets.length, 40),
+                includePromotedContent: true,
+                latestControlAvailable: true,
+                requestContext: 'launch',
+                withCommunity: true
+            };
+            if (cursor) vars.cursor = cursor;
+
+            const res = await this.fetchGraphQL('HomeLatestTimeline', vars);
+            const instructions = res?.data?.home?.home_timeline_urt?.instructions;
+            const { tweets, nextCursor } = this.parseTweets(instructions);
+            allTweets.push(...tweets);
+
+            if (!nextCursor || tweets.length === 0) break;
+            cursor = nextCursor;
+        }
+
+        return allTweets.slice(0, count);
     }
 
     async getUserByScreenName(screenName) {
@@ -210,18 +223,30 @@ export class XClient {
     }
 
     async getUserTweets(userId, count = 20) {
-        const res = await this.fetchGraphQL('UserTweets', {
-            userId: userId,
-            count: count,
-            includePromotedContent: false,
-            withQuickPromoteEligibilityTweetFields: true,
-            withVoice: true,
-            withV2Timeline: true
-        });
-        
-        const instructions = res?.data?.user?.result?.timeline_v2?.timeline?.instructions 
-                           || res?.data?.user?.result?.timeline?.timeline?.instructions;
-        
-        return this.parseTweets(instructions);
+        const allTweets = [];
+        let cursor = undefined;
+
+        while (allTweets.length < count) {
+            const vars = {
+                userId,
+                count: Math.min(count - allTweets.length, 40),
+                includePromotedContent: false,
+                withQuickPromoteEligibilityTweetFields: true,
+                withVoice: true,
+                withV2Timeline: true
+            };
+            if (cursor) vars.cursor = cursor;
+
+            const res = await this.fetchGraphQL('UserTweets', vars);
+            const instructions = res?.data?.user?.result?.timeline_v2?.timeline?.instructions
+                               || res?.data?.user?.result?.timeline?.timeline?.instructions;
+            const { tweets, nextCursor } = this.parseTweets(instructions);
+            allTweets.push(...tweets);
+
+            if (!nextCursor || tweets.length === 0) break;
+            cursor = nextCursor;
+        }
+
+        return allTweets.slice(0, count);
     }
 }

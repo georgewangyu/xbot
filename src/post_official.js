@@ -7,9 +7,9 @@
  * Twitter explicitly supports and does not flag as bot traffic.
  *
  * Required env vars (in .env or georgerepo/.tokens/x-twitter.env):
- *   X_API_KEY            — API Key (Consumer Key)
- *   X_API_SECRET         — API Key Secret (Consumer Secret)
- *   X_ACCESS_TOKEN       — Access Token (your account)
+ *   X_API_KEY             — API Key (Consumer Key)
+ *   X_API_SECRET          — API Key Secret (Consumer Secret)
+ *   X_ACCESS_TOKEN        — Access Token (your account)
  *   X_ACCESS_TOKEN_SECRET — Access Token Secret
  *
  * Usage:
@@ -18,44 +18,8 @@
  */
 
 import crypto from 'crypto';
-import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
-import { homedir } from 'os';
-
-// --- Credential loading ---
-
-function loadEnvFile(filePath) {
-    if (!existsSync(filePath)) return {};
-    const loaded = {};
-    for (const rawLine of readFileSync(filePath, 'utf8').split('\n')) {
-        const line = rawLine.trim();
-        if (!line || line.startsWith('#') || !line.includes('=')) continue;
-        const [key, ...rest] = line.split('=');
-        let value = rest.join('=').trim();
-        if (value.length >= 2 && value[0] === value.at(-1) && (value[0] === '"' || value[0] === "'")) {
-            value = value.slice(1, -1);
-        }
-        loaded[key.trim()] = value;
-    }
-    return loaded;
-}
-
-function loadCredentials() {
-    // Load from .env in this repo first, then fall back to georgerepo tokens
-    const localEnv = resolve(import.meta.dirname, '..', '.env');
-    const privateEnv = resolve(homedir(), 'Documents/Workspace/georgerepo/.tokens/x-twitter.env');
-
-    const fileVars = { ...loadEnvFile(privateEnv), ...loadEnvFile(localEnv) };
-
-    const get = (key) => process.env[key] || fileVars[key] || '';
-
-    return {
-        apiKey: get('X_API_KEY'),
-        apiSecret: get('X_API_SECRET'),
-        accessToken: get('X_ACCESS_TOKEN'),
-        accessTokenSecret: get('X_ACCESS_TOKEN_SECRET'),
-    };
-}
+import { fileURLToPath } from 'url';
+import { loadApiCredentials } from './credentials.js';
 
 // --- OAuth 1.0a signing ---
 
@@ -63,7 +27,7 @@ function percentEncode(str) {
     return encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
-function buildOAuthHeader(method, url, bodyParams, creds) {
+function buildOAuthHeader(method, url, creds) {
     const nonce = crypto.randomBytes(16).toString('hex');
     const timestamp = Math.floor(Date.now() / 1000).toString();
 
@@ -76,11 +40,9 @@ function buildOAuthHeader(method, url, bodyParams, creds) {
         oauth_version: '1.0',
     };
 
-    // Signature base string: merge oauth params + body params, sort, encode
-    const allParams = { ...oauthParams, ...bodyParams };
-    const sortedKeys = Object.keys(allParams).sort();
+    const sortedKeys = Object.keys(oauthParams).sort();
     const paramString = sortedKeys
-        .map((k) => `${percentEncode(k)}=${percentEncode(allParams[k])}`)
+        .map((k) => `${percentEncode(k)}=${percentEncode(oauthParams[k])}`)
         .join('&');
 
     const signingKey = `${percentEncode(creds.apiSecret)}&${percentEncode(creds.accessTokenSecret)}`;
@@ -93,23 +55,20 @@ function buildOAuthHeader(method, url, bodyParams, creds) {
 
     oauthParams.oauth_signature = signature;
 
-    const headerValue =
+    return (
         'OAuth ' +
         Object.entries(oauthParams)
             .map(([k, v]) => `${percentEncode(k)}="${percentEncode(v)}"`)
-            .join(', ');
-
-    return headerValue;
+            .join(', ')
+    );
 }
 
 // --- Tweet posting ---
 
-async function postTweet(text, options = {}) {
-    const creds = loadCredentials();
+export async function postTweet(text, options = {}) {
+    const creds = loadApiCredentials();
 
-    const missing = ['apiKey', 'apiSecret', 'accessToken', 'accessTokenSecret'].filter(
-        (k) => !creds[k]
-    );
+    const missing = ['apiKey', 'apiSecret', 'accessToken', 'accessTokenSecret'].filter((k) => !creds[k]);
     if (missing.length > 0) {
         const envNames = {
             apiKey: 'X_API_KEY',
@@ -130,7 +89,7 @@ async function postTweet(text, options = {}) {
         body.reply = { in_reply_to_tweet_id: options.replyTo };
     }
 
-    const authHeader = buildOAuthHeader('POST', url, {}, creds);
+    const authHeader = buildOAuthHeader('POST', url, creds);
 
     const response = await fetch(url, {
         method: 'POST',
@@ -169,18 +128,21 @@ function parseArgs(argv) {
     return { text: textParts.join(' '), replyTo };
 }
 
-const { text, replyTo } = parseArgs(process.argv);
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+    const { text, replyTo } = parseArgs(process.argv);
 
-if (!text) {
-    console.error('Usage: node src/post_official.js "Tweet text" [--reply-to <tweet_id>]');
-    process.exit(1);
-}
+    if (!text) {
+        console.error('Usage: node src/post_official.js "Tweet text" [--reply-to <tweet_id>]');
+        process.exit(1);
+    }
 
-try {
-    const result = await postTweet(text, { replyTo });
-    const tweetId = result.data?.id;
-    console.log(`Posted successfully. Tweet ID: ${tweetId}`);
-} catch (err) {
-    console.error(`Error: ${err.message}`);
-    process.exit(1);
+    try {
+        const result = await postTweet(text, { replyTo });
+        const tweetId = result.data?.id;
+        console.log(`Posted successfully. Tweet ID: ${tweetId}`);
+    } catch (err) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+    }
 }
