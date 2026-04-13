@@ -26,6 +26,10 @@ xbot/
 │   ├── client.js         # XClient: direct GraphQL fetch for reading
 │   ├── post_official.js  # Official Twitter API v2 poster (OAuth 1.0a — Option 1)
 │   └── credentials.js    # Shared credential loader (.env + georgerepo tokens)
+├── research/
+│   └── X_VIRALITY.md     # Notes on recommendation dynamics and posting philosophy
+├── setup/
+│   └── OFFICIAL_API_SETUP.md  # Durable setup note for X official API read/write access
 ├── README.md
 └── IMPROVEMENTS.md       # Backlog and bot-detection strategy options
 ```
@@ -64,20 +68,26 @@ set +a
 ```
 
 ### Posting (Option 1 — official API)
-Add to `.env` in this directory or to `georgerepo/.tokens/x-twitter.env`:
+Add these to `.env` in this directory or to `georgerepo/.tokens/x-twitter.env`:
 ```
 X_API_KEY=...
 X_API_SECRET=...
 X_ACCESS_TOKEN=...
 X_ACCESS_TOKEN_SECRET=...
 ```
-See setup instructions below.
+These are separate from the cookie-based read credentials (`AUTH_TOKEN`, `CT0`).
+Posting will not work until all four API values are present.
 
 ## Usage
 
 ### Post a tweet (Option 1 — Official API, recommended)
 ```bash
-node src/post_official.js "Your tweet text here"
+node src/cli.js post "Your tweet text here"
+```
+
+### Post a reply (Option 1 — Official API)
+```bash
+node src/cli.js post --reply-to 1234567890123456789 "Your reply text here"
 ```
 
 ### Read home timeline
@@ -102,20 +112,54 @@ node src/cli.js user <handle> --count 10
 
 ## Setting Up Official API (Option 1)
 
-1. Go to [developer.twitter.com](https://developer.twitter.com) and sign in with your X account
-2. Click **"Sign up for Free Account"** (Free tier: 1,500 tweets/month write)
-3. Fill in the use case description (e.g. "Personal automation for posting to my own account")
-4. Once approved, go to **Projects & Apps → Create App**
-5. Under **Keys and Tokens**, generate:
-   - API Key & Secret
-   - Access Token & Secret (with **Read and Write** permissions)
-6. Add all four values to `georgerepo/.tokens/x-twitter.env`
+1. Open the X Developer Console at `https://console.x.com` and sign in with the X account that should own the posts.
+2. Accept the Developer Agreement if the account has not been enrolled yet.
+3. Click `New App` and create an app for this posting workflow.
+4. In the app settings, make sure the app permission level is `Read and write`.
+5. In `Keys and tokens`, generate and save these credentials immediately:
+   - API Key
+   - API Secret
+   - Access Token
+   - Access Token Secret
+6. Add the four values to `georgerepo/.tokens/x-twitter.env` or `xbot/.env`:
+   ```env
+   X_API_KEY=...
+   X_API_SECRET=...
+   X_ACCESS_TOKEN=...
+   X_ACCESS_TOKEN_SECRET=...
+   ```
+7. If you changed app permissions after generating tokens, regenerate the access token and secret so they pick up the new scope.
+
+### Verify Posting Setup
+
+From the workspace root:
+
+```bash
+node xbot/src/cli.js post "hello from xbot official api"
+```
+
+If credentials are missing, `xbot` will tell you exactly which env vars are absent.
+On success, it prints the created tweet ID.
+
+### Troubleshooting
+
+- `Missing credentials`: one or more of the four `X_*` API variables are not loaded.
+- `403` or permission errors: the app is still `Read only`, or the access token was generated before switching to `Read and write`.
+- Read commands working but post failing: this usually means only `AUTH_TOKEN` and `CT0` are present. Read and write auth are separate in this repo.
 
 ## Configuration
 
 Chrome profile defaults (edit `src/client.js` to override):
 - Path: `~/Library/Application Support/Google/Chrome`
 - Profile: `Default`
+
+## Research Notes
+
+- `research/X_VIRALITY.md` — working notes on what seems to drive reach on X, how to think about recommendation surfaces, and practical posting philosophy for builders.
+
+## Setup Notes
+
+- `setup/OFFICIAL_API_SETUP.md` — exact console flow, credential mapping, and failure modes for getting `xbot` onto the official X API with read/write access.
 
 ## Genesis
 

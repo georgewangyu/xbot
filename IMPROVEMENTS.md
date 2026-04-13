@@ -119,7 +119,7 @@ compose UI. Generates a full browser fingerprint (JS events, DOM, cookies).
 - [x] Support replying to a tweet: `node src/cli.js post --reply-to <tweet_id> "text"`
 - [x] Centralize credential loading — shared `src/credentials.js` module
 - [x] Add pagination support — timeline methods auto-paginate for counts > 40
-- [ ] Wire `post_official.js` into daily workflow / agent posting skill
+- [x] Add a dedicated agent posting skill for the official `xbot` API path
 - [ ] Add thread posting: chain multiple tweets via official API reply field
 - [ ] Add media upload support via `POST /2/media/upload` (v1.1 endpoint still required for media)
 - [ ] Add `--dry-run` flag to preview tweet without posting
