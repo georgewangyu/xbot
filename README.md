@@ -90,6 +90,16 @@ node src/cli.js post "Your tweet text here"
 node src/cli.js post --reply-to 1234567890123456789 "Your reply text here"
 ```
 
+### Validate a markdown thread draft before posting
+```bash
+node src/cli.js thread-validate ../georgerepo/social-media/text/platforms/x-linkedin-threads/2026-04-14_builder-vs-coder-ai-thread.md
+```
+
+### Post a markdown thread draft safely
+```bash
+node src/cli.js thread-post ../georgerepo/social-media/text/platforms/x-linkedin-threads/2026-04-14_builder-vs-coder-ai-thread.md
+```
+
 ### Read home timeline
 ```bash
 node src/cli.js home --count 10
