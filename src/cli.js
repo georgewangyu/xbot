@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { XClient } from './client.js';
 import { postTweet } from './post_official.js';
 import { getEnv } from './credentials.js';
+import { loadAndValidateThreadDraft, postThreadPosts } from './thread_draft.js';
 
 const program = new Command();
 
@@ -21,6 +22,63 @@ program
             const result = await postTweet(text, { replyTo: options.replyTo });
             const tweetId = result.data?.id;
             console.log(`Posted successfully. Tweet ID: ${tweetId}`);
+            process.exit(0);
+        } catch (e) {
+            console.error(`Error: ${e.message}`);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('thread-validate <file>')
+    .description('Validate a markdown thread draft before posting')
+    .action((file) => {
+        try {
+            const result = loadAndValidateThreadDraft(file);
+            console.log(`Validated: ${result.absolutePath}`);
+            console.log(`Posts: ${result.posts.length}`);
+            result.posts.forEach((post) => console.log(`- Post ${post.number}: ${post.text.length} chars`));
+
+            if (result.warnings.length > 0) {
+                console.log('\nWarnings:');
+                result.warnings.forEach((warning) => console.log(`- ${warning}`));
+            }
+
+            if (result.errors.length > 0) {
+                console.error('\nErrors:');
+                result.errors.forEach((error) => console.error(`- ${error}`));
+                process.exit(1);
+            }
+
+            console.log('\nValidation passed.');
+            process.exit(0);
+        } catch (e) {
+            console.error(`Error: ${e.message}`);
+            process.exit(1);
+        }
+    });
+
+program
+    .command('thread-post <file>')
+    .description('Validate and post a markdown thread draft')
+    .action(async (file) => {
+        try {
+            const result = loadAndValidateThreadDraft(file);
+
+            if (result.warnings.length > 0) {
+                console.log('Warnings:');
+                result.warnings.forEach((warning) => console.log(`- ${warning}`));
+            }
+
+            if (result.errors.length > 0) {
+                console.error('Validation failed:');
+                result.errors.forEach((error) => console.error(`- ${error}`));
+                process.exit(1);
+            }
+
+            const ids = await postThreadPosts(result.posts);
+            console.log('Thread posted successfully.');
+            console.log(ids.join(' -> '));
             process.exit(0);
         } catch (e) {
             console.error(`Error: ${e.message}`);
