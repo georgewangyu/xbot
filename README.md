@@ -85,6 +85,11 @@ Posting will not work until all four API values are present.
 node src/cli.js post "Your tweet text here"
 ```
 
+### Post a tweet with an image (Option 1 — Official API)
+```bash
+node src/cli.js post --image /absolute/path/to/image.png "Your tweet text here"
+```
+
 ### Post a reply (Option 1 — Official API)
 ```bash
 node src/cli.js post --reply-to 1234567890123456789 "Your reply text here"

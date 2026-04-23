@@ -14,10 +14,13 @@
  *
  * Usage:
  *   node src/post_official.js "Your tweet text"
+ *   node src/post_official.js --image /path/to/image.png "Your tweet text"
  *   node src/post_official.js --reply-to 1234567890 "Your reply text"
  */
 
 import crypto from 'crypto';
+import { existsSync, readFileSync } from 'fs';
+import { basename, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { loadApiCredentials } from './credentials.js';
 
@@ -63,6 +66,56 @@ function buildOAuthHeader(method, url, creds) {
     );
 }
 
+function getMimeType(filePath) {
+    const ext = extname(filePath).toLowerCase();
+    switch (ext) {
+        case '.jpg':
+        case '.jpeg':
+            return 'image/jpeg';
+        case '.png':
+            return 'image/png';
+        case '.webp':
+            return 'image/webp';
+        case '.gif':
+            return 'image/gif';
+        default:
+            return 'application/octet-stream';
+    }
+}
+
+async function uploadImageMedia(imagePath, creds) {
+    if (!existsSync(imagePath)) {
+        throw new Error(`Image file not found: ${imagePath}`);
+    }
+
+    const url = 'https://upload.twitter.com/1.1/media/upload.json';
+    const authHeader = buildOAuthHeader('POST', url, creds);
+    const body = new FormData();
+    const mimeType = getMimeType(imagePath);
+    const imageBuffer = readFileSync(imagePath);
+    body.append('media', new Blob([imageBuffer], { type: mimeType }), basename(imagePath));
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            Authorization: authHeader,
+        },
+        body,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+        const detail = data.error || data.errors?.map((entry) => entry.message).join('; ') || JSON.stringify(data);
+        throw new Error(`Media upload error ${response.status}: ${detail}`);
+    }
+
+    if (!data.media_id_string) {
+        throw new Error(`Media upload succeeded without a media_id_string: ${JSON.stringify(data)}`);
+    }
+
+    return data.media_id_string;
+}
+
 // --- Tweet posting ---
 
 export async function postTweet(text, options = {}) {
@@ -87,6 +140,10 @@ export async function postTweet(text, options = {}) {
     const body = { text };
     if (options.replyTo) {
         body.reply = { in_reply_to_tweet_id: options.replyTo };
+    }
+    if (options.imagePath) {
+        const mediaId = await uploadImageMedia(options.imagePath, creds);
+        body.media = { media_ids: [mediaId] };
     }
 
     const authHeader = buildOAuthHeader('POST', url, creds);
@@ -115,30 +172,33 @@ export async function postTweet(text, options = {}) {
 function parseArgs(argv) {
     const args = argv.slice(2);
     let replyTo = null;
+    let imagePath = null;
     const textParts = [];
 
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--reply-to' && args[i + 1]) {
             replyTo = args[++i];
+        } else if (args[i] === '--image' && args[i + 1]) {
+            imagePath = args[++i];
         } else {
             textParts.push(args[i]);
         }
     }
 
-    return { text: textParts.join(' '), replyTo };
+    return { text: textParts.join(' '), replyTo, imagePath };
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
-    const { text, replyTo } = parseArgs(process.argv);
+    const { text, replyTo, imagePath } = parseArgs(process.argv);
 
     if (!text) {
-        console.error('Usage: node src/post_official.js "Tweet text" [--reply-to <tweet_id>]');
+        console.error('Usage: node src/post_official.js "Tweet text" [--image <path>] [--reply-to <tweet_id>]');
         process.exit(1);
     }
 
     try {
-        const result = await postTweet(text, { replyTo });
+        const result = await postTweet(text, { replyTo, imagePath });
         const tweetId = result.data?.id;
         console.log(`Posted successfully. Tweet ID: ${tweetId}`);
     } catch (err) {
