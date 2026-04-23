@@ -17,9 +17,13 @@ program
     .command('post <text>')
     .description('Post a tweet via the official API (Option 1)')
     .option('-r, --reply-to <tweet_id>', 'Reply to a tweet ID')
+    .option('-i, --image <path>', 'Attach a local image file to the tweet')
     .action(async (text, options) => {
         try {
-            const result = await postTweet(text, { replyTo: options.replyTo });
+            const result = await postTweet(text, {
+                replyTo: options.replyTo,
+                imagePath: options.image,
+            });
             const tweetId = result.data?.id;
             console.log(`Posted successfully. Tweet ID: ${tweetId}`);
             process.exit(0);
