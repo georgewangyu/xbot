@@ -12,7 +12,6 @@ export class XClient {
             'UserTweets': 'Wms1GvIiHXAPBaCr9KblaA',
             'UserByScreenName': 'IGgvgiOx4QZndDHuD3x9TQ',
             'TweetDetail': '_NvJCnIjOW__EP5-RF197A',
-            'SearchTimeline': '6AAys3t42mosm_yTI_QENg',
             'Bookmarks': 'RV1g3b8n_SGOHwkqKYSCFw',
             'FavoriteTweet': 'lI07N6Otwv1PhnEgXILM7A'
         };
@@ -131,18 +130,32 @@ export class XClient {
 
                     const core = tweet.core || result.core;
                     const userResult = core?.user_results?.result;
-                    const userLegacy = userResult?.legacy || userResult?.core;
+                    const userLegacy = userResult?.legacy || {};
+                    const userCore = userResult?.core || {};
+                    const author = userLegacy.screen_name || userCore.screen_name;
+                    const views = numberOrNull(tweet.views?.count ?? tweet.views?.view_count ?? legacy.views);
+                    const followers = numberOrNull(userLegacy.followers_count ?? userCore.followers_count);
+                    const engagementTotal = [
+                        legacy.favorite_count,
+                        legacy.retweet_count,
+                        legacy.reply_count,
+                        legacy.quote_count
+                    ].reduce((sum, value) => sum + numberOrZero(value), 0);
 
                     tweets.push({
                         id: tweet.rest_id,
                         text,
-                        author: userLegacy?.screen_name,
-                        authorName: userLegacy?.name,
+                        author,
+                        authorName: userLegacy.name || userCore.name,
+                        authorFollowers: followers,
                         createdAt: legacy.created_at,
                         likes: legacy.favorite_count,
                         retweets: legacy.retweet_count,
                         replies: legacy.reply_count,
-                        quotes: legacy.quote_count
+                        quotes: legacy.quote_count,
+                        views,
+                        engagementTotal,
+                        url: author && tweet.rest_id ? `https://x.com/${author}/status/${tweet.rest_id}` : null
                     });
                 }
             }
@@ -249,4 +262,15 @@ export class XClient {
 
         return allTweets.slice(0, count);
     }
+
+}
+
+function numberOrNull(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const number = Number(String(value).replace(/,/g, ''));
+    return Number.isFinite(number) ? number : null;
+}
+
+function numberOrZero(value) {
+    return numberOrNull(value) ?? 0;
 }
