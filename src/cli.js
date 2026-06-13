@@ -3,8 +3,10 @@
 import { Command } from 'commander';
 import { XClient } from './client.js';
 import { postTweet } from './post_official.js';
-import { getEnv } from './credentials.js';
+import { getEnv, loadApiCredentials, loadCookieCredentials } from './credentials.js';
 import { loadAndValidateThreadDraft, postThreadPosts } from './thread_draft.js';
+import { dedupeTweets, formatRows, printTable, rankOutlierTweets } from './outliers.js';
+import { searchRecentTweets } from './official_search.js';
 
 const program = new Command();
 
@@ -12,6 +14,25 @@ program
     .name('xbot')
     .description('X/Twitter CLI — official API posting, GraphQL reading')
     .version('1.0.0');
+
+program
+    .command('env')
+    .description('Show the currently resolved non-secret configuration')
+    .action(() => {
+        const api = loadApiCredentials();
+        const cookies = loadCookieCredentials();
+        console.log(JSON.stringify({
+            hasApiKey: Boolean(api.apiKey),
+            hasApiSecret: Boolean(api.apiSecret),
+            hasAccessToken: Boolean(api.accessToken),
+            hasAccessTokenSecret: Boolean(api.accessTokenSecret),
+            hasAuthToken: Boolean(cookies.authToken),
+            hasCt0: Boolean(cookies.ct0),
+            hasMyHandle: Boolean(getEnv('MY_HANDLE')),
+            localEnvPath: 'xbot/.env',
+            privateEnvPath: 'georgerepo/.tokens/x-twitter.env'
+        }, null, 2));
+    });
 
 program
     .command('post <text>')
@@ -176,4 +197,78 @@ program
         }
     });
 
+program
+    .command('outliers')
+    .description('Search X and rank low-follower, high-engagement post outliers')
+    .option('-q, --query <query>', 'Search query; repeat for multiple queries', collect, [])
+    .option('--queries <csv>', 'Comma-separated search queries')
+    .option('-c, --count <number>', 'Tweets to fetch per query', parseInteger, 25)
+    .option('--limit <number>', 'Rows to print after ranking', parseInteger, 20)
+    .option('--max-followers <number>', 'Maximum author follower count', parseInteger, 50000)
+    .option('--min-engagement <number>', 'Minimum engagement unless views are present', parseInteger, 8)
+    .option('--min-views <number>', 'Minimum views for a views-per-follower breakout', parseInteger, 250)
+    .option('--min-views-per-follower <number>', 'Minimum views/follower ratio for a views breakout', parseNumber, 0.5)
+    .option('--search-min-likes <number>', 'Add an X search min_faves operator unless already present; may be rejected by X v2 search', parseInteger, 0)
+    .option('--include-replies', 'Include replies in search results')
+    .option('--format <format>', 'Output format: table or json', 'table')
+    .action(async (options) => {
+        const queries = normalizeQueries(options);
+        if (queries.length === 0) {
+            console.error('Error: pass at least one --query or --queries value.');
+            process.exit(1);
+        }
+
+        try {
+            const allTweets = [];
+            for (const query of queries) {
+                const tweets = await searchRecentTweets(query, options.count, {
+                    searchMinLikes: options.searchMinLikes,
+                    includeReplies: options.includeReplies
+                });
+                allTweets.push(...tweets.map((tweet) => ({ ...tweet, query })));
+            }
+
+            const ranked = rankOutlierTweets(dedupeTweets(allTweets), {
+                maxFollowers: options.maxFollowers,
+                minEngagement: options.minEngagement,
+                minViews: options.minViews,
+                minViewsPerFollower: options.minViewsPerFollower
+            });
+
+            if (options.format === 'json') {
+                console.log(JSON.stringify(ranked.slice(0, options.limit), null, 2));
+            } else {
+                printTable(formatRows(ranked, options.limit));
+            }
+        } catch (e) {
+            console.error(`Error: ${e.message}`);
+            process.exit(1);
+        }
+    });
+
 program.parse();
+
+function collect(value, previous) {
+    previous.push(value);
+    return previous;
+}
+
+function parseInteger(value) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) throw new Error(`Invalid number: ${value}`);
+    return parsed;
+}
+
+function parseNumber(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) throw new Error(`Invalid number: ${value}`);
+    return parsed;
+}
+
+function normalizeQueries(options) {
+    const values = [...(options.query || [])];
+    if (options.queries) {
+        values.push(...options.queries.split(','));
+    }
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}

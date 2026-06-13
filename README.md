@@ -17,6 +17,14 @@ doc_tags:
 Native X/Twitter automation client with multiple posting strategies and GraphQL-based reading.
 Built to bypass bot detection (Error 226) encountered when posting via cookie-auth sessions.
 
+## Status
+
+This repo is runnable and already supports the main intended operator split:
+
+- official API posting for reliable writes
+- session/cookie-backed reading for timeline and account inspection
+- thread draft validation before posting
+
 ## Architecture
 
 ```
@@ -49,6 +57,13 @@ trade-off analysis.
 
 ```bash
 npm install
+```
+
+## Validation
+
+```bash
+npm run env
+npm test
 ```
 
 ## Credentials
@@ -125,6 +140,20 @@ node src/cli.js me
 node src/cli.js user <handle> --count 10
 ```
 
+### Find low-follower/high-engagement post outliers
+```bash
+node src/cli.js outliers \
+  --queries "AI agents,Claude Code,context engineering,agent reliability" \
+  --count 20 \
+  --limit 10
+```
+
+Use JSON when saving runs for later analysis:
+
+```bash
+node src/cli.js outliers --query "AI agents" --count 50 --format json
+```
+
 ## Setting Up Official API (Option 1)
 
 1. Open the X Developer Console at `https://console.x.com` and sign in with the X account that should own the posts.
@@ -167,6 +196,20 @@ On success, it prints the created tweet ID.
 Chrome profile defaults (edit `src/client.js` to override):
 - Path: `~/Library/Application Support/Google/Chrome`
 - Profile: `Default`
+
+## Goals
+
+- Keep posting stable through the official API path.
+- Keep read-side commands useful for research, account checks, and outlier
+  discovery.
+- Make auth boundaries explicit so failures are diagnosable.
+- Preserve a local CLI contract that an agent can operate without hidden glue.
+
+## Non-Goals
+
+- replacing X's platform constraints with fake reliability claims
+- turning `xbot` into a generic social scheduler
+- blurring read and write auth into one magic credential path
 
 ## Research Notes
 
