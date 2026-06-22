@@ -1,17 +1,3 @@
----
-doc_schema: "doc-frontmatter-v1"
-doc_id: "xbot/README"
-doc_type: "readme"
-doc_status: "active"
-title: "xbot — X/Twitter Automation Client"
-description: "Native X/Twitter automation client combining Playwright browser posting, official API v2 posting, and GraphQL reading."
-memory_eligible: false
-memory_priority: "low"
-doc_tags:
-  - "domain:social-media"
-  - "tool:xbot"
-  - "type:readme"
----
 # xbot — X/Twitter Automation Client
 
 Native X/Twitter automation client with multiple posting strategies and GraphQL-based reading.
@@ -69,7 +55,7 @@ npm test
 ## Credentials
 
 ### Reading (Option 2/3 — cookie auth)
-Set in `georgerepo/.tokens/x-twitter.env` or shell environment:
+Set in a local `.env` file, a private env file referenced by your shell, or the shell environment:
 ```
 AUTH_TOKEN=...
 CT0=...
