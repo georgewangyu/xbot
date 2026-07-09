@@ -20,20 +20,17 @@ function loadEnvFile(filePath) {
 }
 
 let _fileVars = null;
-let _overrideVars = null;
-
-function getOverrideVars() {
-    if (_overrideVars) return _overrideVars;
-    const overrideEnv = process.env.XBOT_ENV_FILE ? resolve(process.cwd(), process.env.XBOT_ENV_FILE) : '';
-    _overrideVars = loadEnvFile(overrideEnv);
-    return _overrideVars;
-}
 
 function getFileVars() {
     if (_fileVars) return _fileVars;
     const dir = fileURLToPath(new URL('.', import.meta.url));
     const localEnv = resolve(dir, '..', '.env');
     const privateEnv = resolve(homedir(), 'Documents/Workspace/georgerepo/.tokens/x-twitter.env');
+    const overrideEnv = process.env.XBOT_ENV_FILE ? resolve(process.cwd(), process.env.XBOT_ENV_FILE) : '';
+    if (overrideEnv) {
+        _fileVars = loadEnvFile(overrideEnv);
+        return _fileVars;
+    }
     _fileVars = {
         ...loadEnvFile(privateEnv),
         ...loadEnvFile(localEnv),
@@ -42,7 +39,10 @@ function getFileVars() {
 }
 
 export function getEnv(key) {
-    return getOverrideVars()[key] || process.env[key] || getFileVars()[key] || '';
+    if (process.env.XBOT_ENV_FILE) {
+        return getFileVars()[key] || '';
+    }
+    return process.env[key] || getFileVars()[key] || '';
 }
 
 export function loadApiCredentials() {
