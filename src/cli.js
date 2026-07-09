@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import { XClient } from './client.js';
 import { postTweet } from './post_official.js';
-import { getEnv, loadApiCredentials, loadCookieCredentials } from './credentials.js';
+import { getEnv, loadApiCredentials, loadCookieCredentials, resolvedEnvPaths } from './credentials.js';
 import { loadAndValidateThreadDraft, postThreadPosts } from './thread_draft.js';
 import { dedupeTweets, formatRows, printTable, rankOutlierTweets } from './outliers.js';
 import { searchRecentTweets } from './official_search.js';
@@ -21,6 +21,7 @@ program
     .action(() => {
         const api = loadApiCredentials();
         const cookies = loadCookieCredentials();
+        const paths = resolvedEnvPaths();
         console.log(JSON.stringify({
             hasApiKey: Boolean(api.apiKey),
             hasApiSecret: Boolean(api.apiSecret),
@@ -29,8 +30,9 @@ program
             hasAuthToken: Boolean(cookies.authToken),
             hasCt0: Boolean(cookies.ct0),
             hasMyHandle: Boolean(getEnv('MY_HANDLE')),
-            localEnvPath: 'xbot/.env',
-            privateEnvPath: 'georgerepo/.tokens/x-twitter.env'
+            localEnvPath: paths.localEnvPath,
+            privateEnvPath: paths.privateEnvPath,
+            overrideEnvPath: paths.overrideEnvPath || null
         }, null, 2));
     });
 
