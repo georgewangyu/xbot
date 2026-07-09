@@ -79,6 +79,18 @@ X_ACCESS_TOKEN_SECRET=...
 These are separate from the cookie-based read credentials (`AUTH_TOKEN`, `CT0`).
 Posting will not work until all four API values are present.
 
+For workflows that must not use the default/private X account, point `xbot` at
+a dedicated env file:
+
+```bash
+XBOT_ENV_FILE=../georgerepo/.tokens/x-sports-radar.env node src/cli.js outliers \
+  --query "NBA OR NFL"
+```
+
+Values in `XBOT_ENV_FILE` override the default private token file and ambient
+shell credentials for that process. Use this for Sports Radar or other
+account-specific research lanes where the account boundary matters.
+
 ## Usage
 
 ### Post a tweet (Option 1 — Official API, recommended)
