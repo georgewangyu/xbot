@@ -1,7 +1,11 @@
 import crypto from 'crypto';
 import { loadApiCredentials } from './credentials.js';
+import { normalizeSearchQuery } from './search_query.js';
 
 const SEARCH_URL = 'https://api.twitter.com/2/tweets/search/recent';
+
+// Explicit paid-API building block only. The xbot CLI deliberately does not
+// use this module for read commands; automated reads must stay session-backed.
 
 export async function searchRecentTweets(query, count = 25, options = {}) {
     const creds = loadApiCredentials();
@@ -12,7 +16,7 @@ export async function searchRecentTweets(query, count = 25, options = {}) {
 
     const requested = Math.max(10, Math.min(count, 100));
     const params = {
-        query: normalizeQuery(query, options),
+        query: normalizeSearchQuery(query, options),
         max_results: String(requested),
         expansions: 'author_id',
         'tweet.fields': 'created_at,public_metrics',
@@ -32,19 +36,6 @@ export async function searchRecentTweets(query, count = 25, options = {}) {
     }
 
     return mapSearchResponse(data).slice(0, count);
-}
-
-function normalizeQuery(query, options = {}) {
-    const text = String(query || '').trim();
-    if (!text) throw new Error('Search query is required.');
-    const parts = [text];
-    if (!/\bmin_faves:/.test(text) && Number(options.searchMinLikes) > 0) {
-        parts.push(`min_faves:${Number(options.searchMinLikes)}`);
-    }
-    if (!/\bis:retweet\b/.test(text)) parts.push('-is:retweet');
-    if (!options.includeReplies && !/\bis:reply\b/.test(text)) parts.push('-is:reply');
-    if (!/\blang:/.test(text)) parts.push('lang:en');
-    return parts.join(' ');
 }
 
 function mapSearchResponse(data) {

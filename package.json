@@ -7,7 +7,7 @@
     "env": "node src/cli.js env",
     "me": "node src/cli.js me",
     "check": "node src/cli.js env",
-    "test": "node src/cli.js env >/dev/null"
+    "test": "node --test test/*.test.js && node src/cli.js env >/dev/null"
   },
   "keywords": [],
   "author": "",

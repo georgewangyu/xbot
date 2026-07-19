@@ -4,6 +4,7 @@ import { loadCookieCredentials } from './credentials.js';
 export class XClient {
     constructor(options = {}) {
         this.options = options;
+        this.fetchImpl = options.fetchImpl || fetch;
         this.clientUuid = randomUUID();
         this.clientDeviceId = randomUUID();
         this.queryIds = {
@@ -15,6 +16,12 @@ export class XClient {
             'Bookmarks': 'RV1g3b8n_SGOHwkqKYSCFw',
             'FavoriteTweet': 'lI07N6Otwv1PhnEgXILM7A'
         };
+        this.searchTimelineQueryIds = [
+            '6AAys3t42mosm_yTI_QENg',
+            'M1jEez78PEfVfbQLvlWMvQ',
+            '5h0kNbk3ii97rmfY6CdgAA',
+            'Tp1sewRU1AsZpBWhqCZicQ'
+        ];
     }
 
     createTransactionId() {
@@ -25,7 +32,31 @@ export class XClient {
         const queryId = this.queryIds[operation];
         if (!queryId) throw new Error(`Unknown operation: ${operation}`);
 
-        const defaultFeatures = {
+        const defaultFeatures = this.getDefaultFeatures();
+
+        const finalFeatures = { ...defaultFeatures, ...features };
+        const params = new URLSearchParams({
+            variables: JSON.stringify(variables),
+            features: JSON.stringify(finalFeatures)
+        });
+
+        const url = `https://x.com/i/api/graphql/${queryId}/${operation}?${params.toString()}`;
+        const headers = this.getSessionHeaders();
+
+        const res = await this.fetchImpl(url, { headers });
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`X API Error ${res.status}: ${text.slice(0, 200)}`);
+        }
+        return await res.json();
+    }
+
+    getDefaultFeatures() {
+        return {
+            rweb_video_screen_enabled: true,
+            profile_label_improvements_pcf_label_in_post_enabled: true,
+            responsive_web_profile_redirect_enabled: true,
+            rweb_tipjar_consumption_enabled: true,
             responsive_web_graphql_timeline_navigation_enabled: true,
             responsive_web_graphql_exclude_directive_enabled: true,
             verified_phone_label_enabled: false,
@@ -44,15 +75,10 @@ export class XClient {
             longform_notetweets_inline_media_enabled: true,
             responsive_web_enhance_cards_enabled: false
         };
+    }
 
-        const finalFeatures = { ...defaultFeatures, ...features };
-        const params = new URLSearchParams({
-            variables: JSON.stringify(variables),
-            features: JSON.stringify(finalFeatures)
-        });
-
-        const url = `https://x.com/i/api/graphql/${queryId}/${operation}?${params.toString()}`;
-        const { authToken, ct0 } = loadCookieCredentials();
+    getSessionHeaders() {
+        const { authToken, ct0 } = this.options.cookies || loadCookieCredentials();
 
         if (!authToken || !ct0) {
             throw new Error('Missing AUTH_TOKEN or CT0. Set them in georgerepo/.tokens/x-twitter.env or shell environment.');
@@ -71,16 +97,11 @@ export class XClient {
             'x-twitter-client-deviceid': this.clientDeviceId,
             'x-client-transaction-id': this.createTransactionId(),
             'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+            'content-type': 'application/json',
             'origin': 'https://x.com',
             'referer': 'https://x.com/'
         };
-
-        const res = await fetch(url, { headers });
-        if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`X API Error ${res.status}: ${text.slice(0, 200)}`);
-        }
-        return await res.json();
+        return headers;
     }
 
     // Returns { tweets, nextCursor }
@@ -98,7 +119,9 @@ export class XClient {
             }
 
             const results = [];
-            const push = (res) => { if (res?.rest_id) results.push(res); };
+            const push = (res) => {
+                if (res?.rest_id || res?.tweet?.rest_id) results.push(res);
+            };
 
             push(content?.itemContent?.tweet_results?.result);
             push(content?.item?.itemContent?.tweet_results?.result);
@@ -261,6 +284,75 @@ export class XClient {
         }
 
         return allTweets.slice(0, count);
+    }
+
+    async searchTweets(query, count = 25) {
+        const limit = Math.max(1, Math.floor(Number(count) || 25));
+        const allTweets = [];
+        const seen = new Set();
+        let cursor;
+
+        while (allTweets.length < limit) {
+            const pageCount = Math.min(20, limit - allTweets.length);
+            const page = await this.fetchSearchPage(query, pageCount, cursor);
+            const instructions = page?.data?.search_by_raw_query?.search_timeline?.timeline?.instructions;
+            const { tweets, nextCursor } = this.parseTweets(instructions);
+            let added = 0;
+
+            for (const tweet of tweets) {
+                if (!tweet.id || seen.has(tweet.id)) continue;
+                seen.add(tweet.id);
+                allTweets.push(tweet);
+                added += 1;
+                if (allTweets.length >= limit) break;
+            }
+
+            if (!nextCursor || nextCursor === cursor || tweets.length === 0 || added === 0) break;
+            cursor = nextCursor;
+        }
+
+        return allTweets.slice(0, limit);
+    }
+
+    async fetchSearchPage(query, count, cursor) {
+        const variables = {
+            rawQuery: String(query || '').trim(),
+            count,
+            querySource: 'typed_query',
+            product: 'Latest',
+            ...(cursor ? { cursor } : {})
+        };
+        if (!variables.rawQuery) throw new Error('Search query is required.');
+
+        const params = new URLSearchParams({ variables: JSON.stringify(variables) });
+        const headers = this.getSessionHeaders();
+        const features = this.getDefaultFeatures();
+        const errors = [];
+
+        for (const queryId of this.searchTimelineQueryIds) {
+            const url = `https://x.com/i/api/graphql/${queryId}/SearchTimeline?${params.toString()}`;
+            const response = await this.fetchImpl(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ features, queryId })
+            });
+
+            if (!response.ok) {
+                const detail = await response.text();
+                errors.push(`${queryId}: HTTP ${response.status} ${detail.slice(0, 120)}`);
+                if ([400, 404, 422].includes(response.status)) continue;
+                throw new Error(`Session search failed: ${errors.at(-1)}`);
+            }
+
+            const data = await response.json();
+            if (data.errors?.length) {
+                errors.push(`${queryId}: ${data.errors.map((error) => error.message).join('; ')}`);
+                continue;
+            }
+            return data;
+        }
+
+        throw new Error(`Session search failed for all known Bird-style query IDs. ${errors.join(' | ')}`);
     }
 
 }

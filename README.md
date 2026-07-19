@@ -17,7 +17,7 @@ This repo is runnable and already supports the main intended operator split:
 xbot/
 ├── src/
 │   ├── cli.js            # Unified CLI (read + official API post)
-│   ├── client.js         # XClient: direct GraphQL fetch for reading
+│   ├── client.js         # XClient: session-backed GraphQL timelines + search
 │   ├── post_official.js  # Official Twitter API v2 poster (OAuth 1.0a — Option 1)
 │   └── credentials.js    # Shared credential loader (.env + georgerepo tokens)
 ├── research/
@@ -139,6 +139,11 @@ node src/cli.js user <handle> --count 10
 ```
 
 ### Find low-follower/high-engagement post outliers
+
+`outliers` uses the same Bird-style `auth_token` + `ct0` session reader as the
+timeline commands. It does not call the paid official recent-search API and it
+does not fall back to that API when session search fails.
+
 ```bash
 node src/cli.js outliers \
   --queries "AI agents,Claude Code,context engineering,agent reliability" \
@@ -198,8 +203,8 @@ Chrome profile defaults (edit `src/client.js` to override):
 ## Goals
 
 - Keep posting stable through the official API path.
-- Keep read-side commands useful for research, account checks, and outlier
-  discovery.
+- Keep every CLI read surface, including outlier search, on the session-backed
+  GraphQL path by default.
 - Make auth boundaries explicit so failures are diagnosable.
 - Preserve a local CLI contract that an agent can operate without hidden glue.
 
@@ -208,6 +213,7 @@ Chrome profile defaults (edit `src/client.js` to override):
 - replacing X's platform constraints with fake reliability claims
 - turning `xbot` into a generic social scheduler
 - blurring read and write auth into one magic credential path
+- silently converting a failed session read into a billable official API read
 
 ## Research Notes
 

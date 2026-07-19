@@ -116,6 +116,9 @@ compose UI. Generates a full browser fingerprint (JS events, DOM, cookies).
 ## Near-Term Backlog
 
 - [x] Wire `post_official.js` into `cli.js` (`xbot post` now uses official API)
+- [x] Move `xbot outliers` from paid `/2/tweets/search/recent` reads to the
+  Bird-style `auth_token` + `ct0` `SearchTimeline` path, with known query-ID
+  rotation and no paid fallback
 - [x] Support replying to a tweet: `node src/cli.js post --reply-to <tweet_id> "text"`
 - [x] Centralize credential loading — shared `src/credentials.js` module
 - [x] Add pagination support — timeline methods auto-paginate for counts > 40
@@ -129,6 +132,8 @@ compose UI. Generates a full browser fingerprint (JS events, DOM, cookies).
 
 - [ ] Explore Twitter API Basic tier ($100/month) for higher write limits
 - [ ] Monitor `@steipete/bird` for upstream fixes to the 226 fallback path
+- [ ] Add automatic refresh of session GraphQL query IDs when every baked-in
+  `SearchTimeline` ID fails; keep failure closed rather than using paid reads
 - [ ] Investigate whether Playwright CDP fingerprint can be masked further
 
 ---

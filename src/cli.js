@@ -6,7 +6,7 @@ import { postTweet } from './post_official.js';
 import { getEnv, loadApiCredentials, loadCookieCredentials, resolvedEnvPaths } from './credentials.js';
 import { loadAndValidateThreadDraft, postThreadPosts } from './thread_draft.js';
 import { dedupeTweets, formatRows, printTable, rankOutlierTweets } from './outliers.js';
-import { searchRecentTweets } from './official_search.js';
+import { normalizeSearchQuery } from './search_query.js';
 
 const program = new Command();
 
@@ -201,7 +201,7 @@ program
 
 program
     .command('outliers')
-    .description('Search X and rank low-follower, high-engagement post outliers')
+    .description('Search X through the cookie/session GraphQL path and rank post outliers')
     .option('-q, --query <query>', 'Search query; repeat for multiple queries', collect, [])
     .option('--queries <csv>', 'Comma-separated search queries')
     .option('-c, --count <number>', 'Tweets to fetch per query', parseInteger, 25)
@@ -222,11 +222,13 @@ program
 
         try {
             const allTweets = [];
+            const client = new XClient();
             for (const query of queries) {
-                const tweets = await searchRecentTweets(query, options.count, {
+                const normalizedQuery = normalizeSearchQuery(query, {
                     searchMinLikes: options.searchMinLikes,
                     includeReplies: options.includeReplies
                 });
+                const tweets = await client.searchTweets(normalizedQuery, options.count);
                 allTweets.push(...tweets.map((tweet) => ({ ...tweet, query })));
             }
 
