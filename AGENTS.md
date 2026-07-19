@@ -19,9 +19,13 @@ not get hidden behind vague "automation" language.
 1. Read `VISION.md` before changing product direction or auth strategy.
 2. Preserve the split between official API posting and cookie/session-backed
    reading.
-3. Keep credentials and private token-file assumptions out of public docs when
+3. All CLI read commands, including search and outlier discovery, must default
+   to the Bird-style `auth_token` + `ct0` session path. Never fall back to the
+   paid official API automatically. A paid read path requires an explicit
+   user-approved command and must identify itself as billable.
+4. Keep credentials and private token-file assumptions out of public docs when
    possible.
-4. Prefer explainable command behavior over opaque convenience wrappers.
+5. Prefer explainable command behavior over opaque convenience wrappers.
 
 ## Validation
 
