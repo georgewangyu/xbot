@@ -19,7 +19,7 @@
  */
 
 import crypto from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'fs';
 import { basename, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { loadApiCredentials } from './credentials.js';
@@ -43,13 +43,19 @@ function buildOAuthHeader(method, url, creds) {
         oauth_version: '1.0',
     };
 
-    const sortedKeys = Object.keys(oauthParams).sort();
+    const parsedUrl = new URL(url);
+    const signatureParams = { ...oauthParams };
+    for (const [key, value] of parsedUrl.searchParams.entries()) {
+        signatureParams[key] = value;
+    }
+    const sortedKeys = Object.keys(signatureParams).sort();
     const paramString = sortedKeys
-        .map((k) => `${percentEncode(k)}=${percentEncode(oauthParams[k])}`)
+        .map((k) => `${percentEncode(k)}=${percentEncode(signatureParams[k])}`)
         .join('&');
 
     const signingKey = `${percentEncode(creds.apiSecret)}&${percentEncode(creds.accessTokenSecret)}`;
-    const baseString = `${method}&${percentEncode(url)}&${percentEncode(paramString)}`;
+    const baseUrl = `${parsedUrl.protocol}//${parsedUrl.host}${parsedUrl.pathname}`;
+    const baseString = `${method}&${percentEncode(baseUrl)}&${percentEncode(paramString)}`;
 
     const signature = crypto
         .createHmac('sha1', signingKey)
@@ -66,6 +72,113 @@ function buildOAuthHeader(method, url, creds) {
     );
 }
 
+const MEDIA_UPLOAD_URL = 'https://upload.twitter.com/1.1/media/upload.json';
+const DEFAULT_VIDEO_CHUNK_BYTES = 4 * 1024 * 1024;
+const MAX_API_VIDEO_BYTES = 512 * 1024 * 1024;
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function parseMediaResponse(response, label) {
+    const raw = await response.text();
+    const data = raw ? JSON.parse(raw) : {};
+    if (!response.ok) {
+        const detail = data.error || data.errors?.map((entry) => entry.message).join('; ') || raw || response.statusText;
+        throw new Error(`${label} error ${response.status}: ${detail}`);
+    }
+    return data;
+}
+
+function validateVideoPath(videoPath) {
+    if (!existsSync(videoPath)) throw new Error(`Video file not found: ${videoPath}`);
+    const mimeType = getMimeType(videoPath);
+    if (!['video/mp4', 'video/quicktime'].includes(mimeType)) {
+        throw new Error(`X video upload supports MP4 or MOV files, got: ${videoPath}`);
+    }
+    const size = statSync(videoPath).size;
+    if (size <= 0) throw new Error(`Video file is empty: ${videoPath}`);
+    if (size > MAX_API_VIDEO_BYTES) {
+        throw new Error(`Video exceeds X API's 512 MiB upload limit (${size} bytes): ${videoPath}`);
+    }
+    return { mimeType, size };
+}
+
+async function mediaCommand(fields, creds, label) {
+    const body = new FormData();
+    for (const [key, value] of Object.entries(fields)) body.append(key, String(value));
+    const response = await fetch(MEDIA_UPLOAD_URL, {
+        method: 'POST',
+        headers: { Authorization: buildOAuthHeader('POST', MEDIA_UPLOAD_URL, creds) },
+        body,
+    });
+    return parseMediaResponse(response, label);
+}
+
+async function waitForVideoProcessing(mediaId, processingInfo, creds, { timeoutMs = 20 * 60 * 1000 } = {}) {
+    let info = processingInfo;
+    const deadline = Date.now() + timeoutMs;
+    while (info && !['succeeded', 'failed'].includes(info.state)) {
+        if (Date.now() >= deadline) throw new Error(`Timed out waiting for X to process media ${mediaId}`);
+        await sleep(Math.max(1, Number(info.check_after_secs) || 1) * 1000);
+        const statusUrl = `${MEDIA_UPLOAD_URL}?command=STATUS&media_id=${encodeURIComponent(mediaId)}`;
+        const response = await fetch(statusUrl, {
+            headers: { Authorization: buildOAuthHeader('GET', statusUrl, creds) },
+        });
+        const data = await parseMediaResponse(response, 'Media STATUS');
+        info = data.processing_info;
+    }
+    if (info?.state === 'failed') {
+        throw new Error(`X media processing failed: ${info.error?.message || JSON.stringify(info.error || info)}`);
+    }
+}
+
+export async function uploadVideoMedia(videoPath, creds, {
+    chunkBytes = DEFAULT_VIDEO_CHUNK_BYTES,
+    mediaCategory = 'tweet_video',
+} = {}) {
+    const { mimeType, size } = validateVideoPath(videoPath);
+    const initialized = await mediaCommand({
+        command: 'INIT',
+        total_bytes: size,
+        media_type: mimeType,
+        media_category: mediaCategory,
+    }, creds, 'Media INIT');
+    const mediaId = initialized.media_id_string || initialized.media_id;
+    if (!mediaId) throw new Error(`Media INIT succeeded without a media ID: ${JSON.stringify(initialized)}`);
+
+    const handle = openSync(videoPath, 'r');
+    try {
+        let offset = 0;
+        let segmentIndex = 0;
+        while (offset < size) {
+            const length = Math.min(chunkBytes, size - offset);
+            const chunk = Buffer.allocUnsafe(length);
+            const bytesRead = readSync(handle, chunk, 0, length, offset);
+            if (bytesRead !== length) throw new Error(`Short read at byte ${offset}: expected ${length}, got ${bytesRead}`);
+            const body = new FormData();
+            body.append('command', 'APPEND');
+            body.append('media_id', String(mediaId));
+            body.append('segment_index', String(segmentIndex));
+            body.append('media', new Blob([chunk], { type: 'application/octet-stream' }), `segment-${segmentIndex}.bin`);
+            const response = await fetch(MEDIA_UPLOAD_URL, {
+                method: 'POST',
+                headers: { Authorization: buildOAuthHeader('POST', MEDIA_UPLOAD_URL, creds) },
+                body,
+            });
+            await parseMediaResponse(response, `Media APPEND segment ${segmentIndex}`);
+            offset += bytesRead;
+            segmentIndex += 1;
+        }
+    } finally {
+        closeSync(handle);
+    }
+
+    const finalized = await mediaCommand({ command: 'FINALIZE', media_id: mediaId }, creds, 'Media FINALIZE');
+    await waitForVideoProcessing(String(mediaId), finalized.processing_info, creds);
+    return String(mediaId);
+}
+
 function getMimeType(filePath) {
     const ext = extname(filePath).toLowerCase();
     switch (ext) {
@@ -78,6 +191,10 @@ function getMimeType(filePath) {
             return 'image/webp';
         case '.gif':
             return 'image/gif';
+        case '.mp4':
+            return 'video/mp4';
+        case '.mov':
+            return 'video/quicktime';
         default:
             return 'application/octet-stream';
     }
@@ -88,7 +205,7 @@ async function uploadImageMedia(imagePath, creds) {
         throw new Error(`Image file not found: ${imagePath}`);
     }
 
-    const url = 'https://upload.twitter.com/1.1/media/upload.json';
+    const url = MEDIA_UPLOAD_URL;
     const authHeader = buildOAuthHeader('POST', url, creds);
     const body = new FormData();
     const mimeType = getMimeType(imagePath);
@@ -136,6 +253,14 @@ export async function postTweet(text, options = {}) {
         );
     }
 
+    if (options.imagePath && options.videoPath) {
+        throw new Error('Attach either an image or a video, not both.');
+    }
+    if (options.dryRun) {
+        const media = options.videoPath ? validateVideoPath(options.videoPath) : null;
+        return { dryRun: true, text, media };
+    }
+
     const url = 'https://api.twitter.com/2/tweets';
     const body = { text };
     if (options.replyTo) {
@@ -143,6 +268,12 @@ export async function postTweet(text, options = {}) {
     }
     if (options.imagePath) {
         const mediaId = await uploadImageMedia(options.imagePath, creds);
+        body.media = { media_ids: [mediaId] };
+    }
+    if (options.videoPath) {
+        const mediaId = await uploadVideoMedia(options.videoPath, creds, {
+            mediaCategory: options.mediaCategory,
+        });
         body.media = { media_ids: [mediaId] };
     }
 
@@ -173,6 +304,8 @@ function parseArgs(argv) {
     const args = argv.slice(2);
     let replyTo = null;
     let imagePath = null;
+    let videoPath = null;
+    let dryRun = false;
     const textParts = [];
 
     for (let i = 0; i < args.length; i++) {
@@ -180,25 +313,33 @@ function parseArgs(argv) {
             replyTo = args[++i];
         } else if (args[i] === '--image' && args[i + 1]) {
             imagePath = args[++i];
+        } else if (args[i] === '--video' && args[i + 1]) {
+            videoPath = args[++i];
+        } else if (args[i] === '--dry-run') {
+            dryRun = true;
         } else {
             textParts.push(args[i]);
         }
     }
 
-    return { text: textParts.join(' '), replyTo, imagePath };
+    return { text: textParts.join(' '), replyTo, imagePath, videoPath, dryRun };
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
-    const { text, replyTo, imagePath } = parseArgs(process.argv);
+    const { text, replyTo, imagePath, videoPath, dryRun } = parseArgs(process.argv);
 
     if (!text) {
-        console.error('Usage: node src/post_official.js "Tweet text" [--image <path>] [--reply-to <tweet_id>]');
+        console.error('Usage: node src/post_official.js "Tweet text" [--image <path> | --video <path>] [--reply-to <tweet_id>] [--dry-run]');
         process.exit(1);
     }
 
     try {
-        const result = await postTweet(text, { replyTo, imagePath });
+        const result = await postTweet(text, { replyTo, imagePath, videoPath, dryRun });
+        if (result.dryRun) {
+            console.log(JSON.stringify(result, null, 2));
+            process.exit(0);
+        }
         const tweetId = result.data?.id;
         console.log(`Posted successfully. Tweet ID: ${tweetId}`);
     } catch (err) {

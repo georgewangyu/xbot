@@ -103,6 +103,24 @@ node src/cli.js post "Your tweet text here"
 node src/cli.js post --image /absolute/path/to/image.png "Your tweet text here"
 ```
 
+### Post a tweet with a video (Option 1 — Official API)
+
+Validate the exact local MP4/MOV and copy without creating anything:
+
+```bash
+node src/cli.js post --video /absolute/path/to/video.mp4 --dry-run "Your post text"
+```
+
+Then upload in 4 MiB chunks, wait for X processing, and create the post:
+
+```bash
+node src/cli.js post --video /absolute/path/to/video.mp4 "Approved post text"
+```
+
+The API path accepts one image or one video per command and fails closed above
+X's documented 512 MiB API upload limit. Longer/larger Premium web uploads are
+not assumed to be available through the API.
+
 ### Post a reply (Option 1 — Official API)
 ```bash
 node src/cli.js post --reply-to 1234567890123456789 "Your reply text here"

@@ -124,8 +124,9 @@ compose UI. Generates a full browser fingerprint (JS events, DOM, cookies).
 - [x] Add pagination support — timeline methods auto-paginate for counts > 40
 - [x] Add a dedicated agent posting skill for the official `xbot` API path
 - [ ] Add thread posting: chain multiple tweets via official API reply field
-- [ ] Add media upload support via `POST /2/media/upload` (v1.1 endpoint still required for media)
-- [ ] Add `--dry-run` flag to preview tweet without posting
+- [x] Add image and chunked video media upload support through the official
+  media endpoint, including video processing-status polling
+- [x] Add `--dry-run` for media/copy validation without posting
 - [ ] Add scheduled posting: accept `--at "HH:MM"` and sleep until then
 
 ## Low Priority / Research
