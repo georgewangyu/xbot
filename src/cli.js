@@ -41,12 +41,20 @@ program
     .description('Post a tweet via the official API (Option 1)')
     .option('-r, --reply-to <tweet_id>', 'Reply to a tweet ID')
     .option('-i, --image <path>', 'Attach a local image file to the tweet')
+    .option('-v, --video <path>', 'Attach a local MP4 or MOV using chunked upload')
+    .option('--dry-run', 'Validate copy and local media without uploading or posting')
     .action(async (text, options) => {
         try {
             const result = await postTweet(text, {
                 replyTo: options.replyTo,
                 imagePath: options.image,
+                videoPath: options.video,
+                dryRun: options.dryRun,
             });
+            if (result.dryRun) {
+                console.log(JSON.stringify(result, null, 2));
+                process.exit(0);
+            }
             const tweetId = result.data?.id;
             console.log(`Posted successfully. Tweet ID: ${tweetId}`);
             process.exit(0);
