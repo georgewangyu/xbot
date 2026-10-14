@@ -21,19 +21,26 @@ function loadEnvFile(filePath) {
 
 let _fileVars = null;
 
+function configuredEnvPath() {
+    const configPath = resolve(homedir(), '.config', 'xbot', 'config.json');
+    if (!existsSync(configPath)) return resolve(homedir(), '.config', 'xbot', 'credentials.env');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    if (typeof config.envFile !== 'string' || !config.envFile.trim()) {
+        throw new Error('The local credential config requires a nonempty envFile.');
+    }
+    return resolve(config.envFile);
+}
+
 function getFileVars() {
     if (_fileVars) return _fileVars;
-    const dir = fileURLToPath(new URL('.', import.meta.url));
-    const localEnv = resolve(dir, '..', '.env');
-    const privateEnv = resolve(homedir(), '.config/xbot/credentials.env');
     const overrideEnv = process.env.XBOT_ENV_FILE ? resolve(process.cwd(), process.env.XBOT_ENV_FILE) : '';
     if (overrideEnv) {
         _fileVars = loadEnvFile(overrideEnv);
         return _fileVars;
     }
+    const privateEnv = configuredEnvPath();
     _fileVars = {
         ...loadEnvFile(privateEnv),
-        ...loadEnvFile(localEnv),
     };
     return _fileVars;
 }
@@ -65,7 +72,7 @@ export function resolvedEnvPaths() {
     const dir = fileURLToPath(new URL('.', import.meta.url));
     return {
         localEnvPath: resolve(dir, '..', '.env'),
-        privateEnvPath: resolve(homedir(), '.config/xbot/credentials.env'),
+        privateEnvPath: process.env.XBOT_ENV_FILE ? '' : configuredEnvPath(),
         overrideEnvPath: process.env.XBOT_ENV_FILE ? resolve(process.cwd(), process.env.XBOT_ENV_FILE) : '',
     };
 }

@@ -1,6 +1,6 @@
 # XBot Vision
 
-`xbot` should be a dependable X/Twitter operator client for George's workflow:
+`xbot` should be a dependable X/Twitter operator client for the operator's workflow:
 read timelines and search surfaces, inspect account state, validate post
 drafts, and publish through the most stable allowed path.
 

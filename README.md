@@ -19,7 +19,7 @@ xbot/
 │   ├── cli.js            # Unified CLI (read + official API post)
 │   ├── client.js         # XClient: session-backed GraphQL timelines + search
 │   ├── post_official.js  # Official Twitter API v2 poster (OAuth 1.0a — Option 1)
-│   └── credentials.js    # Shared credential loader (.env + external credential config)
+│   └── credentials.js    # Shared credential loader (external credential config)
 ├── research/
 │   └── X_VIRALITY.md     # Notes on recommendation dynamics and posting philosophy
 ├── setup/
@@ -55,7 +55,7 @@ npm test
 ## Credentials
 
 ### Reading (Option 2/3 — cookie auth)
-Set in a local `.env` file, a private env file referenced by your shell, or the shell environment:
+Set in an external private env file or the shell environment:
 ```
 AUTH_TOKEN=...
 CT0=...
@@ -69,7 +69,7 @@ set +a
 ```
 
 ### Posting (Option 1 — official API)
-Add these to `.env` in this directory or to `~/.config/xbot/credentials.env`:
+Add these to `~/.config/xbot/credentials.env` or an explicitly selected external file:
 ```
 X_API_KEY=...
 X_API_SECRET=...
@@ -186,7 +186,7 @@ node src/cli.js outliers --query "AI agents" --count 50 --format json
    - API Secret
    - Access Token
    - Access Token Secret
-6. Add the four values to `~/.config/xbot/credentials.env` or `xbot/.env`:
+6. Add the four values to `~/.config/xbot/credentials.env` or an explicitly selected external file:
    ```env
    X_API_KEY=...
    X_API_SECRET=...
@@ -255,4 +255,5 @@ reliable posting.
 Set `XBOT_ENV_FILE` for an isolated account, or place an `envFile` pointer in
 `~/.config/xbot/config.json`. Without a pointer, the default credential file is
 `~/.config/xbot/credentials.env`. Keep actual credentials outside the public
-checkout. Local `.env` remains supported for explicitly chosen development.
+checkout. A checkout `.env` is only read when explicitly selected with
+`XBOT_ENV_FILE`; automatic discovery never loads it.

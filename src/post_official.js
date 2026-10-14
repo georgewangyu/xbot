@@ -6,7 +6,7 @@
  * POST /2/tweets endpoint with OAuth 1.0a User Context credentials, which
  * Twitter explicitly supports and does not flag as bot traffic.
  *
- * Required env vars (in .env or georgerepo/.tokens/x-twitter.env):
+ * Required env vars (in .env or ~/.config/xbot/credentials.env):
  *   X_API_KEY             — API Key (Consumer Key)
  *   X_API_SECRET          — API Key Secret (Consumer Secret)
  *   X_ACCESS_TOKEN        — Access Token (your account)
@@ -248,7 +248,7 @@ export async function postTweet(text, options = {}) {
         };
         throw new Error(
             `Missing credentials: ${missing.map((k) => envNames[k]).join(', ')}\n` +
-            'Add them to georgerepo/.tokens/x-twitter.env or a local .env file.\n' +
+            'Add them to ~/.config/xbot/credentials.env or a local .env file.\n' +
             'See README.md → "Setting Up Official API (Option 1)" for setup instructions.'
         );
     }

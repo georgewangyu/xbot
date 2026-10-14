@@ -81,7 +81,7 @@ export class XClient {
         const { authToken, ct0 } = this.options.cookies || loadCookieCredentials();
 
         if (!authToken || !ct0) {
-            throw new Error('Missing AUTH_TOKEN or CT0. Set them in georgerepo/.tokens/x-twitter.env or shell environment.');
+            throw new Error('Missing AUTH_TOKEN or CT0. Set them in ~/.config/xbot/credentials.env or shell environment.');
         }
 
         const headers = {
